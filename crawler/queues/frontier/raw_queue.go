@@ -5,19 +5,38 @@ import (
 	"strings"
 )
 
+func isGitHost(host string) bool {
+	return host == "github.com" ||
+		strings.HasSuffix(host, ".github.com") ||
+		host == "gitlab.com" ||
+		strings.HasSuffix(host, ".gitlab.com") ||
+		host == "bitbucket.org"
+}
+
+func isForumHost(host string) bool {
+	return host == "stackoverflow.com" ||
+		strings.HasSuffix(host, ".stackexchange.com") ||
+		host == "reddit.com" ||
+		strings.HasPrefix(host, "forum.") ||
+		strings.HasPrefix(host, "forums.")
+}
+
 func getPipeline(host string, path string) Normalizer {
-	if strings.Contains(host, "github.com") || strings.Contains(host, "gitlab.com") {
+	if isGitHost(host) {
 		return GitNormalizer{}
 	}
-	if strings.Contains(host, "stackoverflow.com") || strings.Contains(host, "stackexchange.com") {
+	if isForumHost(host) {
 		return ForumNormalizer{}
 	}
-	docKeywords := []string{"/docs/", "/api/", "/reference/", "/guide/"}
-
+	docKeywords := []string{"/docs/", "/doc/", "/api/", "/reference/", "/guide/", "/documentation/"}
 	for _, key := range docKeywords {
 		if strings.Contains(path, key) {
 			return DocsNormalizer{}
 		}
+	}
+
+	if strings.HasPrefix(host, "docs.") || strings.HasPrefix(host, "api.") {
+		return DocsNormalizer{}
 	}
 
 	return GeneralNormalizer{}
