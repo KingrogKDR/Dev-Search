@@ -12,6 +12,8 @@ type CrawlerClient struct {
 	client *http.Client
 }
 
+var UserAgent = "DevSearchCrawler/1.0"
+
 func NewCrawlerClient(timeout time.Duration) *CrawlerClient {
 	transport := &http.Transport{
 		MaxIdleConns:        100,
@@ -32,7 +34,7 @@ func (c *CrawlerClient) FetchReq(u string) (*http.Response, error) {
 		log.Fatalf("Failed to create request: %v\n", err)
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "DevSearchCrawler/1.0")
+	req.Header.Set("User-Agent", UserAgent)
 	return c.client.Do(req)
 }
 

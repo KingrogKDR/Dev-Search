@@ -43,14 +43,14 @@ func Crawler() {
 						return
 					}
 
-					err := scheduler.ScheduleURL(u, crawler)
+					err := scheduler.FetchPageForUrl(u, scheduler.UserAgent, crawler)
 					if err != nil {
 						log.Printf("[Worker %d] Error: %v\n", workerID, err)
-						return
+						continue
 					}
 
 				case <-ctx.Done():
-					fmt.Printf("[Worker %d] context cancelled, shutting down...\n", workerID)
+					fmt.Printf("[Worker %d] shutting down...\n", workerID)
 					return
 				}
 			}
