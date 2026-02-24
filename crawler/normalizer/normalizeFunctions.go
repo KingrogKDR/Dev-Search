@@ -1,7 +1,6 @@
 package frontier
 
 import (
-	"context"
 	"net/url"
 	"strings"
 )
@@ -43,7 +42,7 @@ func getPipeline(host string, path string) Normalizer {
 	return GeneralNormalizer{}
 }
 
-func runNormalizationPipeline(rawURL string) (string, error) {
+func RunNormalizationPipeline(rawURL string) (string, error) {
 	parsedUrl, err := url.Parse(strings.TrimSpace(rawURL))
 
 	if err != nil {
@@ -61,21 +60,4 @@ func runNormalizationPipeline(rawURL string) (string, error) {
 
 	pipeline.Run(parsedUrl)
 	return parsedUrl.String(), nil
-}
-
-func NormalizerWorker(ctx context.Context, rawQ *RawQueue, fetchQ *FetchQueue) {
-	for {
-		rawUrl, err := rawQ.Dequeue(ctx)
-		if err != nil {
-			return
-		}
-
-		normalizedUrl, err := runNormalizationPipeline(rawUrl)
-		if err != nil {
-			rawQ.dropped.Add(1)
-			continue
-		}
-
-		fetchQ.Items <- normalizedUrl
-	}
 }

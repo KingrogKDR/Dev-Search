@@ -57,7 +57,7 @@ func FetchPageForUrl(rawUrl string, userAgent string, crawler *CrawlerClient) er
 	fmt.Println("Final decision for path:", path, "→", isAllowed)
 
 	if !isAllowed {
-		fmt.Println("FETCH BLOCKED BY ROBOTS")
+		fmt.Println("FETCH BLOCKED BY ROBOTS\n************")
 		return nil
 	}
 
