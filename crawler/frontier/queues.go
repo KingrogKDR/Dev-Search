@@ -14,9 +14,26 @@ const (
 	JobDead
 )
 
+type PriorityStatus uint8
+
+const (
+	P0_IMP PriorityStatus = iota
+	P1_HIGH
+	P2_NORMAL
+	P3_LOW
+	NumPriorities
+)
+
+var queueSizes = map[uint8]uint64{
+	uint8(P0_IMP):    256,  // rare, urgent
+	uint8(P1_HIGH):   1024, // discovery
+	uint8(P2_NORMAL): 4096, // main workload
+	uint8(P3_LOW):    8192, // recrawls / background
+}
+
 type Job struct {
 	ID              string
-	Priority        uint64
+	Priority        PriorityStatus
 	Payload         string
 	Status          JobStatus
 	VisibilityUntil time.Time
@@ -41,8 +58,6 @@ type PriorityQ struct {
 
 // dead letter queue
 
-var noOfDataQueues = 3
-
 func NewDataQ(size uint64) *DataQ {
 	if size&(size-1) != 0 {
 		panic("Size must be of power 2")
@@ -60,9 +75,10 @@ func NewDataQ(size uint64) *DataQ {
 	return q
 }
 
-func NewPriorityQ(size uint64) *PriorityQ {
-	dataQueues := make([]*DataQ, noOfDataQueues)
-	for i := range noOfDataQueues {
+func NewPriorityQ() *PriorityQ {
+	dataQueues := make([]*DataQ, NumPriorities)
+	for i := range NumPriorities {
+		size := queueSizes[uint8(i)]
 		dataQueues[i] = NewDataQ(size)
 	}
 
@@ -100,11 +116,24 @@ func (q *DataQ) Dequeue() (*Job, bool) {
 		if diff == 0 {
 			if atomic.CompareAndSwapUint64(&q.head, head, head+1) {
 				job := cell.value
-				atomic.StoreUint64(&q.head, head+q.mask+1) // available for reuse after reading
+				atomic.StoreUint64(&q.head, head+q.mask+1) // slot is available for reuse after reading
 				return job, true
 			}
 		} else if diff < 0 {
 			return nil, false // slot is empty so cannot read from it
 		}
 	}
+}
+
+func (pq *PriorityQ) Enqueue(job *Job) bool {
+	return pq.queues[job.Priority].Enqueue(job)
+}
+
+func (pq *PriorityQ) Dequeue() (*Job, bool) {
+	for p := range NumPriorities {
+		if job, ok := pq.queues[p].Dequeue(); ok {
+			return job, true
+		}
+	}
+	return nil, false
 }

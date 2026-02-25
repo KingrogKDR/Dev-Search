@@ -1,6 +1,7 @@
-package scheduler
+package worker
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,7 +27,9 @@ func FetchPageForUrl(rawUrl string, userAgent string, crawler *CrawlerClient) er
 	fmt.Println("URL:", rawUrl)
 	fmt.Println("User-Agent:", userAgent)
 
-	robots, err := GetRobotsForDomain(scheme, domain, crawler)
+	ctx := context.Background()
+
+	robots, err := GetRobotsForDomain(ctx, scheme, domain, crawler)
 	if err != nil {
 		log.Printf("Error getting robots for the domain: %v\n", err)
 		return err

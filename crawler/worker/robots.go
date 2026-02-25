@@ -1,13 +1,15 @@
-package scheduler
+package worker
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
+	"github.com/KingrogKDR/Dev-Search/storage"
 	"github.com/temoto/robotstxt"
 )
 
@@ -16,12 +18,16 @@ type DomainRobots struct {
 	FetchedAt time.Time
 }
 
-var RobotsCache sync.Map // global cache
+var RobotsCache = storage.GetRedisClient()
 
-func GetRobotsForDomain(scheme string, domain string, crawler *CrawlerClient) (*robotstxt.RobotsData, error) {
+func GetRobotsForDomain(ctx context.Context, scheme string, domain string, crawler *CrawlerClient) (*robotstxt.RobotsData, error) {
 
-	if existingData, ok := RobotsCache.Load(domain); ok {
-		return existingData.(*DomainRobots).Data, nil
+	existingData, err := RobotsCache.Get(ctx, domain).Result()
+	if err == nil {
+		var cachedRobots DomainRobots
+		if err := json.Unmarshal([]byte(existingData), &cachedRobots); err == nil {
+			return cachedRobots.Data, nil
+		}
 	}
 
 	robotsUrl := fmt.Sprintf("%s://%s/robots.txt", scheme, domain)
@@ -48,10 +54,10 @@ func GetRobotsForDomain(scheme string, domain string, crawler *CrawlerClient) (*
 		return nil, err
 	}
 
-	RobotsCache.Store(domain, &DomainRobots{
+	RobotsCache.Set(ctx, domain, &DomainRobots{
 		Data:      robotsData,
 		FetchedAt: time.Now(),
-	})
+	}, 1*time.Hour)
 
 	return robotsData, nil
 }
