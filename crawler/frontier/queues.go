@@ -35,10 +35,10 @@ const (
 )
 
 var queueSizes = map[uint8]uint64{
-	uint8(P0_IMP):    256,  // rare, urgent
-	uint8(P1_HIGH):   1024, // discovery
-	uint8(P2_NORMAL): 4096, // main workload
-	uint8(P3_LOW):    8192, // recrawls / background
+	uint8(P0_IMP):    256,   // rare, urgent
+	uint8(P1_HIGH):   1024,  // discovery
+	uint8(P2_NORMAL): 65536, // main workload
+	uint8(P3_LOW):    65536, // recrawls / background
 }
 
 var maxDeadJobs = 1024
@@ -67,13 +67,8 @@ type DataQ struct {
 
 type PriorityQ struct {
 	queues      []*DataQ
-	deadLetterQ []*deadJob
+	deadLetterQ *DataQ
 	delayed     *DelayedStore
-}
-
-type deadJob struct {
-	job *Job
-	err *error
 }
 
 type DelayedStore struct {
@@ -110,7 +105,7 @@ func NewPriorityQ() *PriorityQ {
 		size := queueSizes[uint8(i)]
 		dataQueues[i] = NewDataQ(size)
 	}
-	deadQ := make([]*deadJob, maxDeadJobs)
+	deadQ := NewDataQ(uint64(maxDeadJobs))
 	pq := &PriorityQ{
 		queues:      dataQueues,
 		deadLetterQ: deadQ,
@@ -230,23 +225,14 @@ func (pq *PriorityQ) HandleFailure(job *Job, err *error, score int) {
 
 	if isPermanentFailure(*err) {
 		job.Status = JobDead
-		jobOver := &deadJob{
-			job: job,
-			err: err,
-		}
-		pq.deadLetterQ = append(pq.deadLetterQ, jobOver)
+		pq.deadLetterQ.enqueue(job)
 		return
 	}
 
 	job.RetryCount++
 
 	if job.RetryCount > MaxRetries {
-		job.Status = JobDead
-		jobOver := &deadJob{
-			job: job,
-			err: err,
-		}
-		pq.deadLetterQ = append(pq.deadLetterQ, jobOver)
+		pq.deadLetterQ.enqueue(job)
 		return
 	}
 	delay := BaseBackoff * time.Duration(1<<job.RetryCount)
@@ -260,9 +246,6 @@ func (pq *PriorityQ) HandleFailure(job *Job, err *error, score int) {
 	score -= int(job.RetryCount * 10)
 
 	job.Priority = ScoreToPriority(score)
-	if job.Priority < P3_LOW {
-		job.Priority++
-	}
 
 	pq.delayed.Add(job)
 }
