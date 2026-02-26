@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -28,8 +29,8 @@ func NewCrawlerClient(timeout time.Duration) *CrawlerClient {
 	}
 }
 
-func (c *CrawlerClient) FetchReq(u string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", u, nil)
+func (c *CrawlerClient) FetchReq(ctx context.Context, u string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v\n", err)
 		return nil, err
@@ -38,9 +39,9 @@ func (c *CrawlerClient) FetchReq(u string) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
-func (c *CrawlerClient) GetUserAgentCheck() {
+func (c *CrawlerClient) GetUserAgentCheck(ctx context.Context) {
 
-	res, err := c.FetchReq("https://httpbin.org/user-agent")
+	res, err := c.FetchReq(ctx, "https://httpbin.org/user-agent")
 	if err != nil {
 		log.Printf("Network error: %v\n", err)
 		return

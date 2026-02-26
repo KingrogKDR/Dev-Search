@@ -1,6 +1,7 @@
 package frontier
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -112,8 +113,6 @@ func NewPriorityQ() *PriorityQ {
 		delayed:     NewDelayedStore(),
 	}
 
-	pq.delayed.Start(pq.Enqueue)
-
 	return pq
 }
 
@@ -161,26 +160,33 @@ func (ds *DelayedStore) Add(job *Job) {
 	ds.mu.Unlock()
 }
 
-func (ds *DelayedStore) Start(reEnqueue func(*Job) bool) {
+func (ds *DelayedStore) Start(ctx context.Context, reEnqueue func(*Job) bool) {
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
-		for range ticker.C {
-			now := time.Now()
+		defer ticker.Stop()
 
-			ds.mu.Lock()
-			remaining := ds.jobs[:0]
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now()
 
-			for _, job := range ds.jobs {
-				if now.After(job.VisibilityUntil) {
-					reEnqueue(job)
-				} else {
-					remaining = append(remaining, job)
+				ds.mu.Lock()
+				remaining := ds.jobs[:0]
+
+				for _, job := range ds.jobs {
+					if now.After(job.VisibilityUntil) {
+						reEnqueue(job)
+					} else {
+						remaining = append(remaining, job)
+					}
 				}
-			}
 
-			ds.jobs = remaining
-			ds.mu.Lock()
+				ds.jobs = remaining
+				ds.mu.Lock()
+			}
 		}
 	}()
 }
