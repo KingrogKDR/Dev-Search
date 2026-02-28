@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/KingrogKDR/Dev-Search/crawler/metadatas"
 )
 
 const VisibilityTimeout = 30 * time.Second
@@ -48,10 +50,13 @@ var delayedStoreSize = 1024
 type Job struct {
 	ID              string
 	Priority        PriorityStatus
-	Payload         string
+	URL             string
+	URLmetadata     metadatas.URLMeta
 	Status          JobStatus
 	VisibilityUntil time.Time
 	RetryCount      uint64
+	FirstEnqueuedAt time.Time
+	BaseScore       int64
 }
 
 type queueCell struct {
@@ -178,6 +183,9 @@ func (ds *DelayedStore) Start(ctx context.Context, reEnqueue func(*Job) bool) {
 
 				for _, job := range ds.jobs {
 					if now.After(job.VisibilityUntil) {
+						waited := now.Sub(job.URLmetadata.FirstSeenAt)
+						agedScore := ApplyAging(job.BaseScore, waited)
+						job.Priority = ScoreToPriority(agedScore)
 						reEnqueue(job)
 					} else {
 						remaining = append(remaining, job)
@@ -192,18 +200,25 @@ func (ds *DelayedStore) Start(ctx context.Context, reEnqueue func(*Job) bool) {
 }
 
 func (pq *PriorityQ) Enqueue(job *Job) bool {
+	job.URLmetadata.FirstSeenAt = time.Now()
+	job.BaseScore = ScoreDevURL(job.URLmetadata)
+	job.Priority = ScoreToPriority(job.BaseScore)
 	return pq.queues[job.Priority].enqueue(job)
 }
 
-func (pq *PriorityQ) Pull() (*Job, JobStatus) {
+func (pq *PriorityQ) ReEnqueue(job *Job) bool {
+	return pq.queues[job.Priority].enqueue(job)
+}
+
+func (pq *PriorityQ) Dequeue() *Job {
 	for p := range NumPriorities {
 		if job, ok := pq.queues[p].dequeue(); ok {
 			job.Status = JobInFlight
 			job.VisibilityUntil = time.Now().Add(VisibilityTimeout)
-			return job, JobInFlight
+			return job
 		}
 	}
-	return nil, JobReady
+	return nil
 }
 
 type HTTPError struct {
@@ -227,7 +242,7 @@ func isPermanentFailure(err error) bool {
 	return false
 }
 
-func (pq *PriorityQ) HandleFailure(job *Job, err *error, score int) {
+func (pq *PriorityQ) HandleFailure(job *Job, err *error) {
 
 	if isPermanentFailure(*err) {
 		job.Status = JobDead
@@ -249,9 +264,7 @@ func (pq *PriorityQ) HandleFailure(job *Job, err *error, score int) {
 	job.VisibilityUntil = time.Now().Add(delay)
 	job.Status = JobReady
 
-	score -= int(job.RetryCount * 10)
-
-	job.Priority = ScoreToPriority(score)
+	job.BaseScore -= int64(job.RetryCount * 10)
 
 	pq.delayed.Add(job)
 }

@@ -6,12 +6,13 @@ import (
 	"github.com/KingrogKDR/Dev-Search/crawler/metadatas"
 )
 
-func ScoreDevURL(u metadatas.URLMeta) int {
-	score := 0
+func ScoreDevURL(u metadatas.URLMeta) int64 {
+	var score int64
+	score = 0
 
 	age := time.Since(u.FirstSeenAt).Minutes()
-	if age < 10 {
-		score += 20
+	if age < 30 {
+		score += int64(30-age) / 2
 	}
 
 	if u.Depth <= 2 {
@@ -51,7 +52,7 @@ func ScoreDevURL(u metadatas.URLMeta) int {
 	return score
 }
 
-func ScoreToPriority(score int) PriorityStatus {
+func ScoreToPriority(score int64) PriorityStatus {
 	switch {
 	case score >= 90:
 		return P0_IMP
@@ -64,6 +65,7 @@ func ScoreToPriority(score int) PriorityStatus {
 	}
 }
 
-func ApplyAging(score int, wait time.Duration) int {
-	return score + int(wait.Minutes())
+func ApplyAging(baseScore int64, waited time.Duration) int64 {
+	agingFactor := int64(waited.Seconds() / 30) // +1 every 30s
+	return baseScore + agingFactor
 }

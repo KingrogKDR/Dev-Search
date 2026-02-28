@@ -18,10 +18,11 @@ type DomainRobots struct {
 	FetchedAt time.Time
 }
 
-var RobotsCache = storage.GetRedisClient()
-
 func GetRobotsForDomain(ctx context.Context, scheme string, domain string, crawler *CrawlerClient) (*robotstxt.RobotsData, error) {
-
+	RobotsCache, err := storage.GetRedisClient()
+	if err != nil {
+		return nil, err
+	}
 	existingData, err := RobotsCache.Get(ctx, domain).Result()
 	if err == nil {
 		var cachedRobots DomainRobots
@@ -31,7 +32,7 @@ func GetRobotsForDomain(ctx context.Context, scheme string, domain string, crawl
 	}
 
 	robotsUrl := fmt.Sprintf("%s://%s/robots.txt", scheme, domain)
-	robotsFile, err := crawler.FetchReq(robotsUrl)
+	robotsFile, err := crawler.FetchReq(ctx, robotsUrl)
 	if err != nil {
 		log.Printf("Error fetching the robots.txt file for %s: %v\n", domain, err)
 		return nil, err

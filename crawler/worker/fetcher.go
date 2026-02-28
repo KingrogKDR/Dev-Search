@@ -18,50 +18,59 @@ import (
 // store domain information in domain metadata
 // store the url metadata in url metadata
 
-func ProcessFromQueue(pq *frontier.PriorityQ) error {
-	job, status := pq.Pull()
-	// check for the job.payload = url, its domain metadata and get robots.txt if available, otherwise call the robots.txt fetch func
-	// fetch url
+func ProcessFromQueue(ctx context.Context, pq *frontier.PriorityQ, userAgent string, crawler *CrawlerClient) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	job := pq.Dequeue()
+	if job == nil {
+		return nil
+	}
+	fmt.Printf("Job %d Status: %s\n", job.ID, job.Status)
+	fmt.Printf("Fetching URL %s---------\n", job.URL)
+	response, err := fetchUrl(ctx, job.URL, userAgent, crawler)
+	if err != nil {
+		log.Printf("Error while processing the url: %s\n", job.URL)
+		return err
+	}
+	// extract the html data, hash the data and check for content similarity or duplication
 	// if succeeds
 	return nil
 
 }
 
-func FetchRobots(rawUrl string)
-
-func FetchPageForUrl(rawUrl string, userAgent string, crawler *CrawlerClient) error {
+func fetchUrl(ctx context.Context, rawUrl string, userAgent string, crawler *CrawlerClient) (*http.Response, error) {
 	parsedUrl, err := url.Parse(rawUrl)
 	if err != nil {
 		log.Printf("Error parsing url: %v\n", err)
+		return nil, err
 	}
 	scheme, domain := parsedUrl.Scheme, parsedUrl.Host
 	path := parsedUrl.Path
-	if path == "" {
-		path = "/"
-	}
+
 	fmt.Println("--------------------------------------------------")
 	fmt.Println("URL:", rawUrl)
 	fmt.Println("User-Agent:", userAgent)
 
-	ctx := context.Background()
 	robots, err := GetRobotsForDomain(ctx, scheme, domain, crawler)
 	if err != nil {
-		log.Printf("Error getting robots for the domain: %v\n", err)
-		return err
+		return nil, err
 	}
 
 	var pageData *http.Response
 	if robots == nil {
 		fmt.Println("robots.txt: NOT FOUND → ALLOW by default")
 
-		pageData, err = crawler.FetchReq(rawUrl)
+		pageData, err = crawler.FetchReq(ctx, rawUrl)
 		if err != nil {
 			log.Printf("Error fetching page: %v. Returned status: %s\n", err, pageData.Status)
-			return err
+			return nil, err
 		}
 		defer pageData.Body.Close()
-		fmt.Println("FETCHED:", pageData.Status)
-		return nil
+		fmt.Println("FETCHED: ", pageData.Status)
+		return pageData, nil
 	}
 
 	fmt.Println("robots.txt: FOUND")
@@ -76,16 +85,16 @@ func FetchPageForUrl(rawUrl string, userAgent string, crawler *CrawlerClient) er
 
 	if !isAllowed {
 		fmt.Println("FETCH BLOCKED BY ROBOTS\n************")
-		return nil
+		return nil, nil
 	}
 
-	pageData, err = crawler.FetchReq(rawUrl)
+	pageData, err = crawler.FetchReq(ctx, rawUrl)
 	if err != nil {
 		log.Printf("Error fetching page: %v. Returned status: %s", err, pageData.Status)
-		return err
+		return nil, err
 	}
 
 	defer pageData.Body.Close()
 	fmt.Println("Fetched: ", pageData.Status)
-	return nil
+	return pageData, nil
 }

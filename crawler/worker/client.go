@@ -32,11 +32,14 @@ func NewCrawlerClient(timeout time.Duration) *CrawlerClient {
 func (c *CrawlerClient) FetchReq(ctx context.Context, u string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		log.Fatalf("Failed to create request: %v\n", err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
-	return c.client.Do(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (c *CrawlerClient) GetUserAgentCheck(ctx context.Context) {

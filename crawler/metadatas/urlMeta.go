@@ -6,16 +6,16 @@ type URLMeta struct {
 	URL    string
 	Domain string
 	Path   string
-	Depth  int
+	Depth  int64
 
 	// discovery
 	DiscoveredFrom string
-	InboundLinks   int
+	InboundLinks   int64
 
 	// content
 	HasCodeBlocks bool
 	ContentType   string
-	WordCount     int
+	WordCount     int64
 
 	// classification
 	IsDocs         bool
