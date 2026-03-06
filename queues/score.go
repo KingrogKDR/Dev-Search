@@ -4,13 +4,13 @@ import (
 	"time"
 )
 
-func ScoreDevURL(u UrlMeta) int64 {
-	var score int64
+func ScoreDevURL(u UrlMeta) int {
+	var score int
 	score = 0
 
 	age := time.Since(u.FirstSeenAt).Minutes()
 	if age < 30 {
-		score += int64(30-age) / 2
+		score += int(30-age) / 2
 	}
 
 	if u.Depth <= 2 {
@@ -51,7 +51,7 @@ func ScoreDevURL(u UrlMeta) int64 {
 	return score
 }
 
-func ScoreToPriority(score int64) PriorityStatus {
+func ScoreToPriority(score int) PriorityStatus {
 	switch {
 	case score >= 90:
 		return P0_CRITICAL
@@ -64,7 +64,7 @@ func ScoreToPriority(score int64) PriorityStatus {
 	}
 }
 
-func ApplyAging(baseScore int64, waited time.Duration) int64 {
-	agingFactor := min(int64(waited.Seconds()/30), 30)
+func ApplyAging(baseScore int, waited time.Duration) int {
+	agingFactor := min(int(waited.Seconds()/30), 30)
 	return baseScore + agingFactor
 }

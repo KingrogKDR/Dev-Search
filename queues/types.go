@@ -31,8 +31,8 @@ type Job struct {
 	URL             string         `json:"url"`
 	Status          JobStatus      `json:"status"`
 	Priority        PriorityStatus `json:"priortity"`
-	RetryCount      int64          `json:"retry_count"`
-	BaseScore       int64          `json:"base_score"`
+	RetryCount      int            `json:"retry_count"`
+	BaseScore       int            `json:"base_score"`
 	VisibilityStart time.Time      `json:"visibility_start"`
 	CreatedAt       time.Time      `json:"created_at"`
 	LastEnqueuedAt  time.Time      `json:"last_enqueued_at"`
@@ -50,22 +50,22 @@ func NewJob(rawUrl string) *Job {
 }
 
 type Result struct {
-	JobID      string    `json:"job_id"`
-	Success    bool      `json:"success"`
-	Error      string    `json:"error,omitempty"`
-	Duration   string    `json:"time.duration"`
-	WorkerID   string    `json:"worker_id"`
-	FinishedAt time.Time `json:"finished_at"`
+	JobID      string        `json:"job_id"`
+	Success    bool          `json:"success"`
+	Error      string        `json:"error,omitempty"`
+	Duration   time.Duration `json:"duration"`
+	WorkerID   string        `json:"worker_id"`
+	FinishedAt time.Time     `json:"finished_at"`
 }
 
 type UrlMeta struct {
-	Depth          int64     `json:"depth"`
+	Depth          int       `json:"depth"`
 	HasQueryParams bool      `json:"has_query_params"`
 	IsDocs         bool      `json:"is_docs"`
 	IsApi          bool      `json:"is_api"`
 	IsSpec         bool      `json:"is_spec"`
 	HasCodeBlocks  bool      `json:"has_code_blocks"`
-	InboundLinks   int64     `json:"inbound_links"`
+	InboundLinks   int       `json:"inbound_links"`
 	ContentType    string    `json:"content_type"`
 	IsBlog         bool      `json:"is_blog"`
 	IsRecrawl      bool      `json:"is_recrawl"`
@@ -77,5 +77,5 @@ type DomainMeta struct {
 	LastCrawledAt time.Time `json:"last_crawled_at"`
 	RobotsFetched bool      `json:"robots_fetched"`
 	RobotsRules   string    `json:"robots_rules"`
-	CrawlDelay    int64     `json:"crawl_delay"`
+	CrawlDelay    int       `json:"crawl_delay"`
 }

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	FrontierKey   = "frontier:%s"
+	ReadyKey      = "ready:%s"
 	ProcessingKey = "processing:%s"
 	ResultsKey    = "results:%s"
 	FailedKey     = "failed"
@@ -22,21 +22,21 @@ const (
 )
 
 type Queue struct {
-	redis     *redis.Client
+	Redis     *redis.Client
 	ctx       context.Context
 	namespace string
 }
 
 func NewQueue(redisClient *redis.Client, namespace string) *Queue {
 	return &Queue{
-		redis:     redisClient,
+		Redis:     redisClient,
 		ctx:       context.Background(),
 		namespace: namespace,
 	}
 }
 
 func (q *Queue) Enqueue(job *Job) error {
-	var effectiveScore int64
+	var effectiveScore int
 
 	if job.LastEnqueuedAt.IsZero() {
 		effectiveScore = job.BaseScore
@@ -53,9 +53,9 @@ func (q *Queue) Enqueue(job *Job) error {
 		return fmt.Errorf("Failed to marshal job: %w", err)
 	}
 
-	queueKey := fmt.Sprintf(FrontierKey, string(job.Priority))
+	queueKey := fmt.Sprintf(ReadyKey, string(job.Priority))
 
-	err = q.redis.RPush(q.ctx, queueKey, jobData).Err()
+	err = q.Redis.RPush(q.ctx, queueKey, jobData).Err()
 	if err != nil {
 		return fmt.Errorf("Failed to enqueue task: %w", err)
 	}
@@ -68,10 +68,10 @@ func (q *Queue) Enqueue(job *Job) error {
 func (q *Queue) Dequeue(queues []string, workerID string, timeout time.Duration) (*Job, error) {
 	queueKeys := make([]string, len(queues))
 	for i, queue := range queues {
-		queueKeys[i] = fmt.Sprintf(FrontierKey, queue)
+		queueKeys[i] = fmt.Sprintf(ReadyKey, queue)
 	}
 
-	result, err := q.redis.BLPop(q.ctx, timeout, queueKeys...).Result()
+	result, err := q.Redis.BLPop(q.ctx, timeout, queueKeys...).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return nil, nil // no available jobs
@@ -91,7 +91,7 @@ func (q *Queue) Dequeue(queues []string, workerID string, timeout time.Duration)
 	job.Status = JOB_INFLIGHT
 	job.VisibilityStart = time.Now()
 
-	pipe := q.redis.Pipeline()
+	pipe := q.Redis.Pipeline()
 	pipe.LPush(q.ctx, processingKey, jobData)
 	pipe.Expire(q.ctx, processingKey, ProcessingTimeout)
 
@@ -113,15 +113,17 @@ func (q *Queue) CompleteJob(job *Job, result *Result, workerID string) error {
 	jobData, _ := json.Marshal(job)
 	resultData, _ := json.Marshal(result)
 
-	pipe := q.redis.Pipeline()
+	pipe := q.Redis.Pipeline()
 
 	pipe.LRem(q.ctx, processingKey, 1, jobData)
 
 	pipe.Set(q.ctx, resultKey, resultData, 24*time.Hour)
 
 	if !result.Success {
-		if job.RetryCount > MAX_RETRIES {
-			pipe.LPush(q.ctx, FailedKey, jobData)
+		if job.RetryCount >= MAX_RETRIES {
+			job.Status = JOB_DEAD
+			newJobData, _ := json.Marshal(job)
+			pipe.LPush(q.ctx, FailedKey, newJobData)
 		} else {
 			job.RetryCount++
 
@@ -147,6 +149,9 @@ func (q *Queue) CompleteJob(job *Job, result *Result, workerID string) error {
 			})
 
 		}
+	} else {
+		job.Status = JOB_DONE
+		log.Printf("Job %s for %s successfully completed!", job.ID, job.URL)
 	}
 
 	_, err := pipe.Exec(q.ctx)
@@ -155,7 +160,7 @@ func (q *Queue) CompleteJob(job *Job, result *Result, workerID string) error {
 
 func (q *Queue) ProcessRetryJobs() error {
 	now := float64(time.Now().Unix())
-	results, err := q.redis.ZRangeByScoreWithScores(q.ctx, RetryKey, &redis.ZRangeBy{
+	results, err := q.Redis.ZRangeByScoreWithScores(q.ctx, RetryKey, &redis.ZRangeBy{
 		Min: "0",
 		Max: fmt.Sprintf("%f", now),
 	}).Result()
@@ -168,7 +173,7 @@ func (q *Queue) ProcessRetryJobs() error {
 		return nil
 	}
 
-	pipe := q.redis.Pipeline()
+	pipe := q.Redis.Pipeline()
 
 	for _, result := range results {
 		jobData := result.Member.(string)
@@ -177,15 +182,15 @@ func (q *Queue) ProcessRetryJobs() error {
 		if err = json.Unmarshal([]byte(jobData), &job); err != nil {
 			continue
 		}
-
 		waited := time.Since(job.LastEnqueuedAt)
 		job.BaseScore = ApplyAging(job.BaseScore, waited)
 		job.Priority = ScoreToPriority(job.BaseScore)
 		job.LastEnqueuedAt = time.Now()
+		job.Status = JOB_READY
 
 		newJobData, _ := json.Marshal(job)
 
-		queueKey := fmt.Sprintf(FrontierKey, string(job.Priority))
+		queueKey := fmt.Sprintf(ReadyKey, string(job.Priority))
 
 		pipe.RPush(q.ctx, queueKey, newJobData)
 
