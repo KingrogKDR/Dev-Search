@@ -2,14 +2,17 @@ package crawler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/KingrogKDR/Dev-Search/deduplication"
 	"github.com/KingrogKDR/Dev-Search/storage"
 	"github.com/redis/go-redis/v9"
 	"github.com/temoto/robotstxt"
@@ -124,6 +127,7 @@ func IsAllowedByRobots(ctx context.Context, meta *DomainMeta, rawUrl string) (bo
 	}
 
 	if len(meta.RobotsRaw) == 0 {
+		log.Printf("No robots.txt found for this url: %s", rawUrl)
 		return true, nil
 	}
 
@@ -152,21 +156,36 @@ func FetchReq(ctx context.Context, rawUrl string) (*http.Response, error) {
 	return resp, nil
 }
 
-func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta) error {
+type githubReadme struct {
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+}
+
+func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, simIndex *deduplication.SimhashIndex, store *storage.MinioStore) error {
+
+	repoURL := parsed.String()
+	log.Printf("[GitHub] Processing repo URL: %s", repoURL)
+
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 
 	if len(parts) < 2 {
-		return fmt.Errorf("Invalid repo url")
+		return fmt.Errorf("Invalid repo url: %s", repoURL)
 	}
 
 	owner := parts[0]
 	repo := parts[1]
+
+	repoURL = fmt.Sprintf("https://github.com/%s/%s", owner, repo)
+
+	log.Printf("[GitHub] Repo identified owner=%s repo=%s", owner, repo)
 
 	api := fmt.Sprintf(
 		"https://api.github.com/repos/%s/%s/readme",
 		owner,
 		repo,
 	)
+
+	log.Printf("[GitHub] Fetching README via API: %s", api)
 
 	resp, err := FetchReq(ctx, api)
 
@@ -177,9 +196,65 @@ func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta) e
 
 	UpdateDomainAccess(ctx, parsed.Host, meta)
 
-	// decode base64
-	// hash for deduplication
-	// store markdown in hash.md.gz form in s3
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return fmt.Errorf("Can't read response body: %w", err)
+	}
+
+	log.Printf("[GitHub] Fetched from %s, size: %d bytes", repoURL, len(body))
+
+	var readme githubReadme
+
+	err = json.Unmarshal(body, &readme)
+	if err != nil {
+		return fmt.Errorf("Can't parse README json: %w", err)
+	}
+
+	if readme.Encoding != "base64" {
+		log.Printf("[GitHub] Unknown encoding for %s", repoURL)
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(readme.Content)
+	if err != nil {
+		return fmt.Errorf("Can't decode README: %w", err)
+	}
+
+	log.Printf("[GitHub] README decoded size: %d bytes", len(decoded))
+
+	cleanedText, err := deduplication.CleanData(string(decoded), deduplication.SourceMD)
+	if err != nil {
+		return fmt.Errorf("Can't clean markdown: %w", err)
+	}
+
+	log.Printf("[GitHub] Cleaned markdown length: %d", len(cleanedText))
+
+	tokens := deduplication.Tokenize(cleanedText)
+	log.Printf("[GitHub] Tokens generated: %d", len(tokens))
+
+	shingles := deduplication.Shingles(tokens, deduplication.ShingleSize)
+	log.Printf("[GitHub] Shingles generated: %d", len(shingles))
+
+	hash := deduplication.SimHash(shingles)
+	log.Printf("[GitHub] SimHash computed: %d", hash)
+
+	isDup := simIndex.IsNearDuplicate(hash, deduplication.MaxHammingDist)
+
+	if isDup {
+		log.Printf("[GitHub] Duplicate repo README detected: %s (hash=%d)", repoURL, hash)
+		return nil
+	}
+
+	simIndex.Add(hash)
+	log.Printf("[GitHub] Repo README unique. Storing to MinIO (hash=%d)", hash)
+
+	err = store.StoreData(ctx, body, repoURL, "github", hash)
+	if err != nil {
+		return fmt.Errorf("Can't store markdown: %w", err)
+	}
+
+	log.Printf("[GitHub] Stored README successfully for repo: %s/%s", owner, repo)
 
 	return nil
 }

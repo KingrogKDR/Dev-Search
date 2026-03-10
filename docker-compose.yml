@@ -4,17 +4,15 @@ services:
     ports:
       - "6379:6379"
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
+  aistor-server:
+    image: quay.io/minio/aistor/minio:latest
+    container_name: aistor-server
+    command: minio server /mnt/data --license /minio.license
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
-
-volumes:
-  minio_data:
+      - ${HOME}/minio/data:/mnt/data
+      - ${HOME}/minio/minio.license:/minio.license
+      - ${HOME}/minio/certs:/etc/minio/certs
+    restart: unless-stopped

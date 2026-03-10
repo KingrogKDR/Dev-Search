@@ -1,14 +1,10 @@
 package deduplication
 
 import (
-	"bytes"
 	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 )
 
 type SourceType string
@@ -30,121 +26,43 @@ func CleanData(data string, t SourceType) (string, error) {
 	return "", nil
 }
 
+var spaceRegex = regexp.MustCompile(`\s+`)
+
 func cleanHtml(html string) (string, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return "", err
 	}
-
-	builder := CanonicalBuilder{}
-
 	doc.Find("script, style, nav, footer, aside").Remove()
 
-	title := doc.Find("title").Text()
-	builder.Add("title", title)
+	text := doc.Text()
 
-	doc.Find("h1, h2, h3").Each(func(i int, s *goquery.Selection) {
-		builder.Add("heading", s.Text())
-	})
+	text = spaceRegex.ReplaceAllLiteralString(text, " ")
 
-	doc.Find("p").Each(func(i int, s *goquery.Selection) {
-		builder.Add("text", s.Text())
-	})
+	text = strings.ToLower(text)
 
-	doc.Find("li, ul").Each(func(i int, s *goquery.Selection) {
-		builder.Add("list", s.Text())
-	})
+	return strings.TrimSpace(text), nil
 
-	doc.Find("code").Each(func(i int, s *goquery.Selection) {
-		builder.Add("code", s.Text())
-	})
-
-	doc.Find("a").Each(func(i int, s *goquery.Selection) {
-		text := s.Text()
-		href, exists := s.Attr("href")
-		if exists {
-			builder.Add("link", text+" "+href)
-		}
-	})
-
-	return builder.String(), nil
 }
 
-var badgeRegex = regexp.MustCompile(`!\[.*?\]\(.*?shields\.io.*?\)`)
-var imageRegex = regexp.MustCompile(`!\[.*?\]\(.*?\)`)
+var (
+	badgeRegex = regexp.MustCompile(`!\[.*?\]\(.*?shields\.io.*?\)`)
+	imageRegex = regexp.MustCompile(`!\[.*?\]\(.*?\)`)
+	mdLink     = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)
+	mdSyntax   = regexp.MustCompile(`[>#*_` + "`" + `~-]`)
+)
 
 func cleanMarkdown(md string) string {
-	md = badgeRegex.ReplaceAllString(md, "") // removes badges from md
-	md = imageRegex.ReplaceAllString(md, "") // removes images from md
+	md = badgeRegex.ReplaceAllString(md, "")
+	md = imageRegex.ReplaceAllString(md, "")
 
-	mdParser := goldmark.DefaultParser()
+	md = mdLink.ReplaceAllString(md, "$1 $2") // converts md links to title + url
 
-	source := []byte(md)
-	doc := mdParser.Parse(text.NewReader(source))
+	md = mdSyntax.ReplaceAllString(md, "")
 
-	builder := CanonicalBuilder{}
+	md = spaceRegex.ReplaceAllString(md, " ")
 
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
+	md = strings.ToLower(md)
 
-		switch node := n.(type) {
-
-		case *ast.Heading:
-			var buf bytes.Buffer
-
-			for c := node.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-
-			builder.Add("heading", strings.TrimSpace(buf.String()))
-
-		case *ast.Paragraph:
-			var buf bytes.Buffer
-
-			for c := node.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-
-			builder.Add("text", strings.TrimSpace(buf.String()))
-
-		case *ast.ListItem:
-			var buf bytes.Buffer
-
-			for c := node.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-
-			builder.Add("list", strings.TrimSpace(buf.String()))
-
-		case *ast.Link:
-			dest := string(node.Destination)
-
-			var buf bytes.Buffer
-			for c := node.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-
-			text := strings.TrimSpace(buf.String())
-
-			if text != "" {
-				builder.Add("link", text+" "+dest)
-			} else {
-				builder.Add("link", dest)
-			}
-		}
-
-		return ast.WalkContinue, nil
-	})
-
-	return builder.String()
+	return strings.TrimSpace(md)
 }

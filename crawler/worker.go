@@ -3,12 +3,16 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/KingrogKDR/Dev-Search/deduplication"
+	"github.com/KingrogKDR/Dev-Search/internal/stats"
 	"github.com/KingrogKDR/Dev-Search/queues"
+	"github.com/KingrogKDR/Dev-Search/storage"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +25,8 @@ type Worker struct {
 	ID       string
 	frontier *queues.Queue
 	queues   []string
+	simIndex *deduplication.SimhashIndex
+	store    *storage.MinioStore
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -30,13 +36,15 @@ type Worker struct {
 	timeout     time.Duration
 }
 
-func NewWorker(frontier *queues.Queue, queues []string, concurrency int) *Worker {
+func NewWorker(frontier *queues.Queue, queues []string, concurrency int, simIndex *deduplication.SimhashIndex, store *storage.MinioStore) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 	workerID := fmt.Sprintf("%s-%s", UserAgent, uuid.New().String())
 	return &Worker{
 		ID:          workerID,
 		frontier:    frontier,
 		queues:      queues,
+		simIndex:    simIndex,
+		store:       store,
 		ctx:         ctx,
 		cancel:      cancel,
 		concurrency: concurrency,
@@ -44,7 +52,8 @@ func NewWorker(frontier *queues.Queue, queues []string, concurrency int) *Worker
 	}
 }
 
-func ProcessJob(ctx context.Context, job *queues.Job) error {
+func (w *Worker) ProcessJob(ctx context.Context, job *queues.Job) error {
+	log.Printf("[Worker %s] Starting job for URL: %s", w.ID, job.URL)
 	parsed, err := url.Parse(job.URL)
 	if err != nil {
 		return fmt.Errorf("Parsing url in processing job: %w", err)
@@ -53,36 +62,40 @@ func ProcessJob(ctx context.Context, job *queues.Job) error {
 	domain := parsed.Hostname()
 	rawUrl := parsed.String()
 
+	log.Printf("[Worker %s] Parsed URL domain=%s", w.ID, domain)
+
 	meta, err := GetDomainMetadata(ctx, domain, parsed.Scheme)
-
-	if domain == "github.com" {
-		return ProcessGithubRepo(ctx, parsed, meta)
-	}
-
 	if err != nil {
 		return fmt.Errorf("Unable to get domain meta: %w", err)
+	}
+
+	if domain == "github.com" {
+		log.Printf("[Worker %s] Detected GitHub repo URL: %s", w.ID, rawUrl)
+		return ProcessGithubRepo(ctx, parsed, meta, w.simIndex, w.store)
 	}
 
 	isPathAllowed, err := IsAllowedByRobots(ctx, meta, rawUrl)
 
 	if err != nil {
-		return fmt.Errorf("Path blocked by robots: %w", err)
+		return fmt.Errorf("Robots error: %w", err)
 	}
 
 	if !isPathAllowed {
+		log.Printf("[Worker %s] Robots.txt blocked URL: %s", w.ID, rawUrl)
 		return nil
 	}
 
 	isDomainAllowed, err := CheckDomainRateLimit(meta)
 
 	if err != nil {
-		return fmt.Errorf("Domain blocked by rate limit: %w", err)
+		return fmt.Errorf("Rate limiting error: %w", err)
 	}
 
 	if !isDomainAllowed {
+		log.Printf("[Worker %s] Rate limited domain: %s", w.ID, domain)
 		return nil
 	}
-
+	log.Printf("[Worker %s] Fetching URL: %s", w.ID, rawUrl)
 	resp, err := FetchReq(ctx, rawUrl)
 
 	if err != nil {
@@ -92,8 +105,48 @@ func ProcessJob(ctx context.Context, job *queues.Job) error {
 
 	UpdateDomainAccess(ctx, domain, meta)
 
-	// hash the content, check for duplication
-	// if not duplicate, store the raw html with the hash name and compressed form, update url metadata
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return fmt.Errorf("Can't read response body: %w", err)
+	}
+
+	log.Printf("[Worker %s] Fetched %d bytes from %s", w.ID, len(body), rawUrl)
+
+	cleanedText, err := deduplication.CleanData(string(body), deduplication.SourceHTML)
+	if err != nil {
+		return fmt.Errorf("Can't clean html: %w", err)
+	}
+
+	log.Printf("[Worker %s] Cleaned text length: %d", w.ID, len(cleanedText))
+
+	tokens := deduplication.Tokenize(cleanedText)
+	log.Printf("[Worker %s] Tokens generated: %d", w.ID, len(tokens))
+
+	shingles := deduplication.Shingles(tokens, deduplication.ShingleSize)
+	log.Printf("[Worker %s] Shingles generated: %d", w.ID, len(shingles))
+
+	hash := deduplication.SimHash(shingles)
+	log.Printf("[Worker %s] SimHash computed: %d", w.ID, hash)
+
+	isDup := w.simIndex.IsNearDuplicate(hash, deduplication.MaxHammingDist)
+
+	if isDup {
+		log.Printf("[Worker %s] Duplicate page detected: %s (hash=%d)", w.ID, job.URL, hash)
+		return nil
+	}
+
+	w.simIndex.Add(hash)
+
+	log.Printf("[Worker %s] Page unique. Storing to MinIO (hash=%d)", w.ID, hash)
+
+	err = w.store.StoreData(ctx, body, job.URL, "html", hash)
+	if err != nil {
+		return fmt.Errorf("Can't store html: %w", err)
+	}
+
+	log.Printf("[Worker %s] Stored page successfully: %s", w.ID, job.URL)
+
 	return nil
 }
 
@@ -156,7 +209,7 @@ func (w *Worker) processTask(job *queues.Job) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- ProcessJob(ctx, job)
+		done <- w.ProcessJob(ctx, job)
 	}()
 
 	var err error
@@ -178,6 +231,7 @@ func (w *Worker) processTask(job *queues.Job) {
 }
 
 func (w *Worker) completeTask(job *queues.Job, success bool, errorMsg string, duration time.Duration) {
+	stats.Increment()
 	result := &queues.Result{
 		JobID:      job.ID,
 		Success:    success,
@@ -188,7 +242,7 @@ func (w *Worker) completeTask(job *queues.Job, success bool, errorMsg string, du
 	}
 
 	if success {
-		log.Printf("Worker %s: Job %s for %s completed successfully in %v", w.ID, job.ID, job.URL, duration)
+		log.Printf("Worker %s: Finished job %s in %v success=%v", w.ID, job.URL, duration, success)
 	} else {
 		log.Printf("Worker %s: Job %s for %s failed: %s (attempt %d/%d)",
 			w.ID, job.ID, job.URL, errorMsg, job.RetryCount+1, queues.MAX_RETRIES+1)

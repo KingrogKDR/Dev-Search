@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	"github.com/KingrogKDR/Dev-Search/crawler"
+	"github.com/KingrogKDR/Dev-Search/deduplication"
+	"github.com/KingrogKDR/Dev-Search/internal/stats"
 	"github.com/KingrogKDR/Dev-Search/queues"
 	"github.com/KingrogKDR/Dev-Search/storage"
 )
@@ -20,12 +23,40 @@ var priorityQueues = []string{
 }
 
 var seedUrls = []string{
-	"https://github.com",
+	"https://go.dev/doc/",
+	"https://go.dev/doc/effective_go",
+	"https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+	"https://docs.docker.com/get-started/",
+	"https://github.com/golang/go",
+	"https://github.com/donnemartin/system-design-primer",
+	"https://github.com/codecrafters-io/build-your-own-x",
+	"https://golang.org/doc/effective_go",
 }
+
+var Store *storage.MinioStore
 
 func main() {
 	rdb := storage.GetRedisClient()
 	frontier := queues.NewQueue(rdb, "frontierqueue")
+
+	simIndex := deduplication.NewSimIndex()
+
+	store, err := storage.NewMinioStore(
+		"localhost:9000",
+		"minioadmin",
+		"minioadmin",
+		"devsearch-data",
+		false,
+	)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = store.EnsureBucket(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for _, u := range seedUrls {
 		job := queues.NewJob(u)
@@ -39,7 +70,7 @@ func main() {
 		time.Sleep(100 * time.Millisecond)
 
 	}
-	worker := crawler.NewWorker(frontier, priorityQueues, 2)
+	worker := crawler.NewWorker(frontier, priorityQueues, 2, simIndex, store)
 
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
@@ -50,6 +81,16 @@ func main() {
 				log.Printf("Error processing retry jobs: %v", err)
 			}
 		}
+	}()
+
+	go func() {
+
+		ticker := time.NewTicker(5 * time.Second)
+
+		for range ticker.C {
+			stats.Report()
+		}
+
 	}()
 
 	worker.Start()

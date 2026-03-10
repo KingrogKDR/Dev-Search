@@ -4,17 +4,16 @@ go 1.26.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.11.0
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/google/uuid v1.6.0
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/temoto/robotstxt v1.1.2
-	github.com/yuin/goldmark v1.7.16
 	golang.org/x/sync v0.20.0
 )
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
