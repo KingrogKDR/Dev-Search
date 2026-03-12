@@ -56,7 +56,7 @@ func (m *MinioStore) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
-func (m *MinioStore) StoreData(ctx context.Context, raw []byte, url string, source string, hash uint64) (string, error) {
+func (m *MinioStore) StoreRawData(ctx context.Context, raw []byte, url string, source string, hash uint64) (string, error) {
 	var contentPath string
 	var contentType string
 
@@ -92,6 +92,10 @@ func (m *MinioStore) StoreData(ctx context.Context, raw []byte, url string, sour
 	})
 
 	return contentPath, err
+}
+
+func (m *MinioStore) StoreTextData(ctx context.Context, text string, hash uint64) error {
+	return nil
 }
 
 func (m *MinioStore) GetObject(ctx context.Context, objectName string) ([]byte, error) {

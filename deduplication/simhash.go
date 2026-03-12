@@ -31,7 +31,7 @@ func (idx *SimhashIndex) Add(hash uint64) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	parts := PartitionHash(hash)
+	parts := partitionHash(hash)
 
 	for i := 0; i < 4; i++ {
 		key := parts[i]
@@ -44,7 +44,7 @@ func (idx *SimhashIndex) IsNearDuplicate(hash uint64, maxDist int) bool {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	parts := PartitionHash(hash)
+	parts := partitionHash(hash)
 
 	candidates := make(map[uint64]struct{})
 
@@ -58,7 +58,7 @@ func (idx *SimhashIndex) IsNearDuplicate(hash uint64, maxDist int) bool {
 	}
 
 	for c := range candidates {
-		if HammingDistance(hash, c) <= maxDist {
+		if hammingDistance(hash, c) <= maxDist {
 			return true
 		}
 	}
@@ -119,7 +119,7 @@ func SimHash(shingles []string) uint64 {
 	return fingerPrint
 }
 
-func PartitionHash(hash uint64) [4]uint16 {
+func partitionHash(hash uint64) [4]uint16 {
 	return [4]uint16{
 		uint16(hash >> 48),
 		uint16(hash >> 32),
@@ -128,7 +128,7 @@ func PartitionHash(hash uint64) [4]uint16 {
 	}
 }
 
-func HammingDistance(a, b uint64) int {
+func hammingDistance(a, b uint64) int {
 	x := a ^ b
 
 	dist := 0

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/KingrogKDR/Dev-Search/deduplication"
+	"github.com/KingrogKDR/Dev-Search/parsing"
 	"github.com/KingrogKDR/Dev-Search/queues"
 	"github.com/KingrogKDR/Dev-Search/storage"
 	"github.com/redis/go-redis/v9"
@@ -28,16 +29,132 @@ type DomainMeta struct {
 }
 
 const (
+	UserAgent     = "Dev_Search/1.0"
 	DomainMetaKey = "domainmeta:%s"
 )
 
 var domainMetaGroup singleflight.Group
 
-func CheckDomainRateLimit(meta *DomainMeta) (bool, error) {
+func FetchAndStoreRaw(ctx context.Context, job *queues.Job, simIndex *deduplication.SimhashIndex, store *storage.MinioStore, parseQ *queues.Queue) error {
+	log.Printf("[Crawler] Starting job for URL: %s", job.URL)
+	parsed, err := url.Parse(job.URL)
+	if err != nil {
+		return fmt.Errorf("Parsing url in processing job: %w", err)
+	}
+
+	domain := parsed.Hostname()
+	rawUrl := parsed.String()
+
+	log.Printf("[Crawler] Parsed URL domain=%s", domain)
+
+	meta, err := getDomainMetadata(ctx, domain, parsed.Scheme)
+	if err != nil {
+		return fmt.Errorf("Unable to get domain meta: %w", err)
+	}
+
+	isPathAllowed, err := isAllowedByRobots(ctx, meta, rawUrl)
+
+	if err != nil {
+		return fmt.Errorf("Robots error: %w", err)
+	}
+
+	if !isPathAllowed {
+		log.Printf("[Crawler] Robots.txt blocked URL: %s", rawUrl)
+		return nil
+	}
+
+	isDomainAllowed, err := checkDomainRateLimit(meta)
+
+	if err != nil {
+		return fmt.Errorf("Rate limiting error: %w", err)
+	}
+
+	if !isDomainAllowed {
+		log.Printf("[Crawler] Rate limited domain: %s", domain)
+		return nil
+	}
+
+	if domain == "github.com" {
+		log.Printf("[Crawler] Detected GitHub repo URL: %s", rawUrl)
+		return processGithubRepo(ctx, parsed, meta, simIndex, store, parseQ)
+	}
+
+	log.Printf("[Crawler] Fetching URL: %s", rawUrl)
+	resp, err := fetchReq(ctx, rawUrl)
+
+	if err != nil {
+		return fmt.Errorf("Can't fetch from %s: %w", rawUrl, err)
+	}
+	defer resp.Body.Close()
+
+	updateDomainAccess(ctx, domain, meta)
+
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return fmt.Errorf("Can't read response body: %w", err)
+	}
+
+	log.Printf("[Crawler] Fetched %d bytes from %s", len(body), rawUrl)
+
+	cleanedText, err := deduplication.CleanData(string(body), deduplication.SourceHTML)
+	if err != nil {
+		return fmt.Errorf("Can't clean html: %w", err)
+	}
+
+	log.Printf("[Crawler] Cleaned text length: %d", len(cleanedText))
+
+	tokens := deduplication.Tokenize(cleanedText)
+	log.Printf("[Crawler] Tokens generated: %d", len(tokens))
+
+	shingles := deduplication.Shingles(tokens, deduplication.ShingleSize)
+	log.Printf("[Crawler] Shingles generated: %d", len(shingles))
+
+	hash := deduplication.SimHash(shingles)
+	log.Printf("[Crawler] SimHash computed: %d", hash)
+
+	isDup := simIndex.IsNearDuplicate(hash, deduplication.MaxHammingDist)
+
+	if isDup {
+		log.Printf("[Crawler] Duplicate page detected: %s (hash=%d)", job.URL, hash)
+		return nil
+	}
+
+	log.Printf("[Crawler] Page unique. Storing to MinIO (hash=%d)", hash)
+
+	objectKey, err := store.StoreRawData(ctx, body, job.URL, "html", hash)
+	if err != nil {
+		return fmt.Errorf("Can't store html: %w", err)
+	}
+
+	log.Printf("[Crawler] Stored page successfully: %s", job.URL)
+
+	parsePayload := parsing.NewParsePayload(objectKey, hash, "html")
+
+	payloadBytes, err := json.Marshal(parsePayload)
+
+	if err != nil {
+		return fmt.Errorf("failed marshaling parse payload: %w", err)
+	}
+
+	parseJob := queues.NewJob(job.URL)
+	parseJob.Payload = payloadBytes
+
+	err = parseQ.Enqueue(parseJob)
+	if err != nil {
+		return fmt.Errorf("failed to enqueue parse job: %w", err)
+	}
+
+	log.Printf("[Crawler] Parse job queued for: %s", job.URL)
+
+	return nil
+}
+
+func checkDomainRateLimit(meta *DomainMeta) (bool, error) {
 	return !time.Now().Before(meta.NextAllowedTime), nil
 }
 
-func UpdateDomainAccess(ctx context.Context, domain string, meta *DomainMeta) error {
+func updateDomainAccess(ctx context.Context, domain string, meta *DomainMeta) error {
 	meta.NextAllowedTime = time.Now().Add(meta.CrawlDelay)
 
 	data, err := json.Marshal(meta)
@@ -50,7 +167,7 @@ func UpdateDomainAccess(ctx context.Context, domain string, meta *DomainMeta) er
 	return storage.GetRedisClient().Set(ctx, key, data, 24*time.Hour).Err()
 }
 
-func GetDomainMetadata(ctx context.Context, domain string, scheme string) (*DomainMeta, error) {
+func getDomainMetadata(ctx context.Context, domain string, scheme string) (*DomainMeta, error) {
 	rdb := storage.GetRedisClient()
 	key := fmt.Sprintf(DomainMetaKey, domain)
 
@@ -71,7 +188,7 @@ func GetDomainMetadata(ctx context.Context, domain string, scheme string) (*Doma
 	v, err, _ := domainMetaGroup.Do(domain, func() (interface{}, error) {
 		robotsUrl := fmt.Sprintf("%s://%s/robots.txt", scheme, domain)
 
-		robotsResp, err := FetchReq(ctx, robotsUrl)
+		robotsResp, err := fetchReq(ctx, robotsUrl)
 
 		if err != nil {
 			return nil, err
@@ -121,7 +238,7 @@ func GetDomainMetadata(ctx context.Context, domain string, scheme string) (*Doma
 	return v.(*DomainMeta), nil
 }
 
-func IsAllowedByRobots(ctx context.Context, meta *DomainMeta, rawUrl string) (bool, error) {
+func isAllowedByRobots(ctx context.Context, meta *DomainMeta, rawUrl string) (bool, error) {
 	parsed, err := url.Parse(rawUrl)
 	if err != nil {
 		return false, fmt.Errorf("invalid url: %w", err)
@@ -142,7 +259,7 @@ func IsAllowedByRobots(ctx context.Context, meta *DomainMeta, rawUrl string) (bo
 	return group.Test(parsed.Path), nil
 }
 
-func FetchReq(ctx context.Context, rawUrl string) (*http.Response, error) {
+func fetchReq(ctx context.Context, rawUrl string) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, "GET", rawUrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request for %s: %w", rawUrl, err)
@@ -162,7 +279,7 @@ type githubReadme struct {
 	Encoding string `json:"encoding"`
 }
 
-func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, simIndex *deduplication.SimhashIndex, store *storage.MinioStore, parseQ *queues.Queue) error {
+func processGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, simIndex *deduplication.SimhashIndex, store *storage.MinioStore, parseQ *queues.Queue) error {
 
 	repoURL := parsed.String()
 	log.Printf("[GitHub] Processing repo URL: %s", repoURL)
@@ -188,14 +305,14 @@ func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, s
 
 	log.Printf("[GitHub] Fetching README via API: %s", api)
 
-	resp, err := FetchReq(ctx, api)
+	resp, err := fetchReq(ctx, api)
 
 	if err != nil {
 		return fmt.Errorf("Can't fetch repo from %s: %w", api, err)
 	}
 	defer resp.Body.Close()
 
-	UpdateDomainAccess(ctx, parsed.Host, meta)
+	updateDomainAccess(ctx, parsed.Host, meta)
 
 	body, err := io.ReadAll(resp.Body)
 
@@ -247,31 +364,25 @@ func ProcessGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, s
 		return nil
 	}
 
-	simIndex.Add(hash)
 	log.Printf("[GitHub] Repo README unique. Storing to MinIO (hash=%d)", hash)
 
-	objectKey, err := store.StoreData(ctx, body, repoURL, "github", hash)
+	objectKey, err := store.StoreRawData(ctx, body, repoURL, "github", hash)
 	if err != nil {
 		return fmt.Errorf("Can't store markdown: %w", err)
 	}
 
 	log.Printf("[GitHub] Stored README successfully for repo: %s/%s", owner, repo)
 
-	parseJob := queues.NewJob(repoURL)
+	parsePayload := parsing.NewParsePayload(objectKey, hash, "html")
 
-	parseMetaKey := fmt.Sprintf("parsemeta:%s", parseJob.ID)
+	payloadBytes, err := json.Marshal(parsePayload)
 
-	parseMeta := map[string]interface{}{
-		"url":        repoURL,
-		"object_key": objectKey,
-		"type":       "md",
-		"hash":       hash,
-	}
-
-	err = parseQ.Redis.HSet(ctx, parseMetaKey, parseMeta).Err()
 	if err != nil {
-		return fmt.Errorf("failed storing parse metadata: %w", err)
+		return fmt.Errorf("failed marshaling parse payload: %w", err)
 	}
+
+	parseJob := queues.NewJob(repoURL)
+	parseJob.Payload = payloadBytes
 
 	err = parseQ.Enqueue(parseJob)
 	if err != nil {

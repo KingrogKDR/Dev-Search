@@ -1,6 +1,7 @@
 package queues
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,16 +28,17 @@ const MAX_RETRIES = 5
 const DEFAULT_RETRY_DELAY = 10 * time.Second
 
 type Job struct {
-	ID              string         `json:"id"`
-	URL             string         `json:"url"`
-	Status          JobStatus      `json:"status"`
-	Priority        PriorityStatus `json:"priortity"`
-	RetryCount      int            `json:"retry_count"`
-	BaseScore       int            `json:"base_score"`
-	VisibilityStart time.Time      `json:"visibility_start"`
-	CreatedAt       time.Time      `json:"created_at"`
-	LastEnqueuedAt  time.Time      `json:"last_enqueued_at"`
-	ErrorMsg        string         `json:"err_msg"`
+	ID              string          `json:"id"`
+	URL             string          `json:"url"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
+	Status          JobStatus       `json:"status"`
+	Priority        PriorityStatus  `json:"priority"`
+	RetryCount      int             `json:"retry_count"`
+	BaseScore       int             `json:"base_score"`
+	VisibilityStart time.Time       `json:"visibility_start"`
+	CreatedAt       time.Time       `json:"created_at"`
+	LastEnqueuedAt  time.Time       `json:"last_enqueued_at"`
+	ErrorMsg        string          `json:"err_msg"`
 }
 
 func NewJob(rawUrl string) *Job {
@@ -70,12 +72,4 @@ type UrlMeta struct {
 	IsBlog         bool      `json:"is_blog"`
 	IsRecrawl      bool      `json:"is_recrawl"`
 	FirstSeenAt    time.Time `json:"first_seen_at"`
-}
-
-type DomainMeta struct {
-	Domain        string    `json:"domain"`
-	LastCrawledAt time.Time `json:"last_crawled_at"`
-	RobotsFetched bool      `json:"robots_fetched"`
-	RobotsRules   string    `json:"robots_rules"`
-	CrawlDelay    int       `json:"crawl_delay"`
 }

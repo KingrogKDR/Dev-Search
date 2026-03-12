@@ -13,6 +13,7 @@ import (
 	"github.com/KingrogKDR/Dev-Search/internal/stats"
 	"github.com/KingrogKDR/Dev-Search/queues"
 	"github.com/KingrogKDR/Dev-Search/storage"
+	"github.com/KingrogKDR/Dev-Search/worker"
 )
 
 var priorityQueues = []string{
@@ -37,8 +38,8 @@ var Store *storage.MinioStore
 
 func main() {
 	rdb := storage.GetRedisClient()
-	frontier := queues.NewQueue(rdb, "frontierqueue")
-	parseQ := queues.NewQueue(rdb, "parsequeue")
+	frontier := queues.NewQueue(rdb, "frontier")
+	parseQ := queues.NewQueue(rdb, "parser")
 
 	simIndex := deduplication.NewSimIndex()
 
@@ -56,7 +57,7 @@ func main() {
 
 	err = store.EnsureBucket(context.Background())
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Bucket doesn't exist in s3: %w", err)
 	}
 
 	for _, u := range seedUrls {
@@ -71,7 +72,12 @@ func main() {
 		time.Sleep(100 * time.Millisecond)
 
 	}
-	worker := crawler.NewWorker(frontier, parseQ, priorityQueues, 2, simIndex, store)
+
+	crawlExec := func(ctx context.Context, job *queues.Job) error {
+		return crawler.FetchAndStoreRaw(ctx, job, simIndex, store, parseQ)
+	}
+
+	crawlerWorker := worker.NewWorker(crawler.UserAgent, frontier, priorityQueues, 2, crawlExec)
 
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
@@ -94,13 +100,13 @@ func main() {
 
 	}()
 
-	worker.Start()
+	crawlerWorker.Start()
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
 	log.Println("Shutting down worker...")
-	worker.Stop()
+	crawlerWorker.Stop()
 
 }

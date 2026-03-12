@@ -13,11 +13,19 @@ func isGitHost(host string) bool {
 		host == "bitbucket.org"
 }
 
+var docKeywords = []string{
+	"/docs/",
+	"/doc/",
+	"/api/",
+	"/reference/",
+	"/guide/",
+	"/documentation/",
+}
+
 func getPipeline(host string, path string) Normalizer {
 	if isGitHost(host) {
 		return GitNormalizer{}
 	}
-	docKeywords := []string{"/docs/", "/doc/", "/api/", "/reference/", "/guide/", "/documentation/"}
 	for _, key := range docKeywords {
 		if strings.Contains(path, key) {
 			return DocsNormalizer{}
