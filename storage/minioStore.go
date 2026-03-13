@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/KingrogKDR/Dev-Search/queues"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -85,7 +86,7 @@ func (m *MinioStore) StoreRawData(ctx context.Context, raw []byte, url string, s
 		Timestamp: time.Now().Unix(),
 	}
 	metaBytes, _ := json.Marshal(meta)
-	metaPath := fmt.Sprintf("meta/%d.json", hash)
+	metaPath := fmt.Sprintf("domain-meta/%d.json", hash)
 
 	_, err = m.Client.PutObject(ctx, m.Bucket, metaPath, bytes.NewReader(metaBytes), int64(len(metaBytes)), minio.PutObjectOptions{
 		ContentType: "application/json",
@@ -94,8 +95,25 @@ func (m *MinioStore) StoreRawData(ctx context.Context, raw []byte, url string, s
 	return contentPath, err
 }
 
-func (m *MinioStore) StoreTextData(ctx context.Context, text string, hash uint64) error {
-	return nil
+func (m *MinioStore) StoreTextData(ctx context.Context, text string, hash uint64, urlMeta *queues.UrlMeta) error {
+	contentPath := fmt.Sprintf("text/%d", hash)
+	textBytes := []byte(text)
+
+	_, err := m.Client.PutObject(ctx, m.Bucket, contentPath, bytes.NewReader(textBytes), int64(len(text)), minio.PutObjectOptions{
+		ContentType: "text",
+	})
+	if err != nil {
+		return err
+	}
+
+	urlMetaBytes, _ := json.Marshal(urlMeta)
+	metaPath := fmt.Sprintf("url-meta/%d.json", hash)
+
+	_, err = m.Client.PutObject(ctx, m.Bucket, metaPath, bytes.NewReader(urlMetaBytes), int64(len(urlMetaBytes)), minio.PutObjectOptions{
+		ContentType: "application/json",
+	})
+
+	return err
 }
 
 func (m *MinioStore) GetObject(ctx context.Context, objectName string) ([]byte, error) {

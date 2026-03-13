@@ -4,7 +4,37 @@ import (
 	"time"
 )
 
-func ScoreDevURL(u UrlMeta) int {
+type UrlMeta struct {
+	Depth          int       `json:"depth"`
+	HasQueryParams bool      `json:"has_query_params"`
+	IsDocs         bool      `json:"is_docs"`
+	IsApi          bool      `json:"is_api"`
+	IsSpec         bool      `json:"is_spec"`
+	HasCodeBlocks  bool      `json:"has_code_blocks"`
+	InboundLinks   int       `json:"inbound_links"`
+	ContentType    string    `json:"content_type"`
+	IsBlog         bool      `json:"is_blog"`
+	IsRecrawl      bool      `json:"is_recrawl"`
+	FirstSeenAt    time.Time `json:"first_seen_at"`
+}
+
+func NewUrlMeta(depth int, inbound_links int, contentType string) *UrlMeta {
+	return &UrlMeta{
+		Depth: depth,
+		HasQueryParams: false,
+		IsDocs: false,
+		IsApi: false,
+		IsSpec: false,
+		HasCodeBlocks: false,
+		InboundLinks: inbound_links,
+		ContentType: contentType,
+		IsBlog: false,
+		IsRecrawl: false,
+		FirstSeenAt: time.Now(),
+	}
+}
+
+func ScoreDevURL(u *UrlMeta) int {
 	var score int
 	score = 0
 

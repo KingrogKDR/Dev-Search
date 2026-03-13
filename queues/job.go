@@ -59,17 +59,3 @@ type Result struct {
 	WorkerID   string        `json:"worker_id"`
 	FinishedAt time.Time     `json:"finished_at"`
 }
-
-type UrlMeta struct {
-	Depth          int       `json:"depth"`
-	HasQueryParams bool      `json:"has_query_params"`
-	IsDocs         bool      `json:"is_docs"`
-	IsApi          bool      `json:"is_api"`
-	IsSpec         bool      `json:"is_spec"`
-	HasCodeBlocks  bool      `json:"has_code_blocks"`
-	InboundLinks   int       `json:"inbound_links"`
-	ContentType    string    `json:"content_type"`
-	IsBlog         bool      `json:"is_blog"`
-	IsRecrawl      bool      `json:"is_recrawl"`
-	FirstSeenAt    time.Time `json:"first_seen_at"`
-}

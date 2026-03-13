@@ -34,6 +34,10 @@ func NewParsePayload(objectKey string, hash uint64, typ string) *ParsePayload {
 	}
 }
 
+const (
+	UrlMetaKey = "urlmeta:%s"
+)
+
 func ExtractTextAndStore(ctx context.Context, job *queues.Job, store *storage.MinioStore, frontier *queues.Queue) error {
 	log.Printf("[Parser] Starting job for URL: %s", job.URL)
 	parsed, err := url.Parse(job.URL)
@@ -59,6 +63,7 @@ func ExtractTextAndStore(ctx context.Context, job *queues.Job, store *storage.Mi
 		return fmt.Errorf("failed extracting text from raw data: %w", err)
 	}
 
+	// store text data
 	// deduplicate urls
 
 	var normalizedUrls []string
@@ -71,12 +76,28 @@ func ExtractTextAndStore(ctx context.Context, job *queues.Job, store *storage.Mi
 		normalizedUrls = append(normalizedUrls, normalizedUrl)
 	}
 
-	// update url metadata
+	// update url metadata 
+	// currently just a skeleton
 
-	if err = store.StoreTextData(ctx, text, payload.Hash); err != nil {
+	urlMeta := queues.UrlMeta{
+		Depth: 0,
+		HasQueryParams: false,
+		IsDocs: false,
+		IsApi: false,
+		IsSpec: false,
+		HasCodeBlocks: false,
+		InboundLinks: 0,
+		ContentType: "",
+		IsBlog: false,
+		IsRecrawl: false,
+		FirstSeenAt: time.Now(),
+	}
+
+	if err = store.StoreTextData(ctx, text, payload.Hash, &urlMeta); err != nil {
 		return fmt.Errorf("failed storing text data: %w", err)
 	}
 
+	// creation of url metadata after normalization
 	for _, u := range normalizedUrls {
 		job := queues.NewJob(u)
 
