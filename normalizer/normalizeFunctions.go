@@ -13,30 +13,12 @@ func isGitHost(host string) bool {
 		host == "bitbucket.org"
 }
 
-var docKeywords = []string{
-	"/docs/",
-	"/doc/",
-	"/api/",
-	"/reference/",
-	"/guide/",
-	"/documentation/",
-}
-
-func getPipeline(host string, path string) Normalizer {
+func getPipeline(host string) Normalizer {
 	if isGitHost(host) {
 		return GitNormalizer{}
 	}
-	for _, key := range docKeywords {
-		if strings.Contains(path, key) {
-			return DocsNormalizer{}
-		}
-	}
 
-	if strings.HasPrefix(host, "docs.") || strings.HasPrefix(host, "api.") {
-		return DocsNormalizer{}
-	}
-
-	return GeneralNormalizer{}
+	return DocsNormalizer{}
 }
 
 func RunNormalizationPipeline(rawURL string) (string, error) {
@@ -50,9 +32,8 @@ func RunNormalizationPipeline(rawURL string) (string, error) {
 	pipeline.Rules = append(pipeline.Rules, BaseNormalizer{})
 
 	host := strings.ToLower(parsedUrl.Host)
-	path := strings.ToLower(parsedUrl.Path)
 
-	specialRules := getPipeline(host, path)
+	specialRules := getPipeline(host)
 	pipeline.Rules = append(pipeline.Rules, specialRules)
 
 	pipeline.Run(parsedUrl)

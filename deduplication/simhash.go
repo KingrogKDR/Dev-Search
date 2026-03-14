@@ -140,3 +140,7 @@ func hammingDistance(a, b uint64) int {
 
 	return dist
 }
+
+func ComputeHash(raw string) uint64 {
+	return xxhash.Sum64String(raw)
+}

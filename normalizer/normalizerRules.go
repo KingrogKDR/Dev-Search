@@ -11,7 +11,6 @@ import (
 
 // GitPipeline : force https, strip .git, strip auth info(@git, user:pass), keep fragments only if they look like numbers(eg #L10), preserve path case, remove trailing slashes
 // Docs Pipeline : path insensitive, do not strip query params like v=1.2 or path segments like /v2/, keep fragments, Normalize Locales: normalize site.com/en-us/doc and site.com/fr-fr/doc to a single canonical version site.com/doc, keep trailing slashes
-// General Pipeline : lowercase everything, remove all params, strip index.html or default.aspx., remove trailing slashes
 
 // The Universal Base (Applied to ALL URLs)
 
@@ -55,7 +54,6 @@ func (p *NormalizationPipeline) Run(u *url.URL) {
 type BaseNormalizer struct{}
 type GitNormalizer struct{}
 type DocsNormalizer struct{}
-type GeneralNormalizer struct{}
 
 func normalizeIPv4(host string) string {
 	parts := strings.Split(host, ".")
@@ -134,24 +132,5 @@ func (n DocsNormalizer) Normalize(u *url.URL) {
 	u.Path = strings.ToLower(u.Path)
 	if !strings.HasSuffix(u.Path, "/") && !strings.Contains(path.Base(u.Path), ".") {
 		u.Path += "/"
-	}
-}
-
-func (n GeneralNormalizer) Normalize(u *url.URL) {
-	u.Path = strings.ToLower(u.Path)
-
-	u.Path = strings.TrimSuffix(u.Path, "/index.html/")
-	u.Path = strings.TrimSuffix(u.Path, "/index.htm/")
-	u.Path = strings.TrimSuffix(u.Path, "index.html")
-	u.Path = strings.TrimSuffix(u.Path, "index.htm")
-	u.Path = strings.TrimSuffix(u.Path, "default.aspx")
-	u.Path = strings.TrimSuffix(u.Path, "default.asp")
-	u.Path = strings.TrimSuffix(u.Path, "home.php")
-
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.Path = strings.TrimRight(u.Path, "/")
-	if u.Path == "" {
-		u.Path = "/"
 	}
 }
