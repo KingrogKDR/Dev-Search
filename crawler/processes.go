@@ -39,7 +39,7 @@ var domainMetaGroup singleflight.Group
 var ErrRateLimited = errors.New("rate limited")
 
 func FetchAndStoreRaw(ctx context.Context, job *queues.Job, simIndex *deduplication.SimhashIndex, store *storage.MinioStore, parseQ *queues.Queue) error {
-	log.Printf("[Crawler] Starting job for URL: %s", job.URL)
+	log.Printf("[Crawler] Starting job %s for URL: %s", job.ID, job.URL)
 	parsed, err := url.Parse(job.URL)
 	if err != nil {
 		return fmt.Errorf("Parsing url in processing job: %w", err)
@@ -66,14 +66,19 @@ func FetchAndStoreRaw(ctx context.Context, job *queues.Job, simIndex *deduplicat
 		return nil
 	}
 
-	isDomainAllowed, err := checkDomainRateLimit(meta)
-
+	wait, err := reserveDomainAccess(ctx, domain, meta)
 	if err != nil {
 		return fmt.Errorf("Rate limiting error: %w", err)
 	}
 
-	if !isDomainAllowed {
-		return ErrRateLimited
+	if wait > 0 {
+		log.Printf("[Crawler] Rate limit wait %s for %s", wait, domain)
+
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	if domain == "github.com" {
@@ -93,8 +98,6 @@ func FetchAndStoreRaw(ctx context.Context, job *queues.Job, simIndex *deduplicat
 	stats.AddFetchLatency(time.Since(startFetch))
 
 	defer resp.Body.Close()
-
-	updateDomainAccess(ctx, domain, meta)
 
 	body, err := io.ReadAll(resp.Body)
 
@@ -161,21 +164,30 @@ func FetchAndStoreRaw(ctx context.Context, job *queues.Job, simIndex *deduplicat
 	return nil
 }
 
-func checkDomainRateLimit(meta *DomainMeta) (bool, error) {
-	return !time.Now().Before(meta.NextAllowedTime), nil
-}
+func reserveDomainAccess(ctx context.Context, domain string, meta *DomainMeta) (time.Duration, error) {
+	now := time.Now()
 
-func updateDomainAccess(ctx context.Context, domain string, meta *DomainMeta) error {
-	meta.NextAllowedTime = time.Now().Add(meta.CrawlDelay)
+	wait := time.Duration(0)
+
+	if now.Before(meta.NextAllowedTime) {
+		wait = meta.NextAllowedTime.Sub(now)
+	}
+
+	meta.NextAllowedTime = now.Add(wait + meta.CrawlDelay)
 
 	data, err := json.Marshal(meta)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	key := fmt.Sprintf(DomainMetaKey, domain)
 
-	return storage.GetRedisClient().Set(ctx, key, data, 24*time.Hour).Err()
+	err = storage.GetRedisClient().Set(ctx, key, data, 24*time.Hour).Err()
+	if err != nil {
+		return 0, err
+	}
+
+	return wait, nil
 }
 
 func getDomainMetadata(ctx context.Context, domain string, scheme string) (*DomainMeta, error) {
@@ -322,8 +334,6 @@ func processGithubRepo(ctx context.Context, parsed *url.URL, meta *DomainMeta, s
 		return fmt.Errorf("Can't fetch repo from %s: %w", api, err)
 	}
 	defer resp.Body.Close()
-
-	updateDomainAccess(ctx, parsed.Host, meta)
 
 	body, err := io.ReadAll(resp.Body)
 

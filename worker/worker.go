@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	TaskTimeout = 120 * time.Second
+	TaskTimeout = 60 * time.Second
 )
 
 type ExecFunc func(ctx context.Context, job *queues.Job) error
