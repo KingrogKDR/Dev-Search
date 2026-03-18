@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/KingrogKDR/Dev-Search/normalizer"
-	"github.com/KingrogKDR/Dev-Search/queues"
+	"github.com/KingrogKDR/Dev-Search/scraper/normalizer"
+	"github.com/KingrogKDR/Dev-Search/scraper/queues"
 	"github.com/KingrogKDR/Dev-Search/storage"
 	"github.com/redis/go-redis/v9"
 
