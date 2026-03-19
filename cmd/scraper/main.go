@@ -1,4 +1,4 @@
-package scraper
+package main
 
 import (
 	"context"
@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/KingrogKDR/Dev-Search/scraper/crawler"
-	"github.com/KingrogKDR/Dev-Search/scraper/deduplication"
-	"github.com/KingrogKDR/Dev-Search/scraper/internal/stats"
-	"github.com/KingrogKDR/Dev-Search/scraper/parsing"
-	"github.com/KingrogKDR/Dev-Search/scraper/queues"
-	"github.com/KingrogKDR/Dev-Search/scraper/worker"
-	"github.com/KingrogKDR/Dev-Search/storage"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/crawler"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/deduplication"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/parsing"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/queues"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/stats"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/worker"
+	"github.com/KingrogKDR/Dev-Search/internal/storage"
 )
 
 var priorityQueues = []string{

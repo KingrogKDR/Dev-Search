@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KingrogKDR/Dev-Search/scraper/crawler"
-	"github.com/KingrogKDR/Dev-Search/scraper/internal/stats"
-	"github.com/KingrogKDR/Dev-Search/scraper/queues"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/crawler"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/queues"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/stats"
 	"github.com/google/uuid"
 )
 

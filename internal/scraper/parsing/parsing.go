@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/KingrogKDR/Dev-Search/scraper/normalizer"
-	"github.com/KingrogKDR/Dev-Search/scraper/queues"
-	"github.com/KingrogKDR/Dev-Search/storage"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/normalizer"
+	"github.com/KingrogKDR/Dev-Search/internal/scraper/queues"
+	"github.com/KingrogKDR/Dev-Search/internal/storage"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/PuerkitoBio/goquery"
