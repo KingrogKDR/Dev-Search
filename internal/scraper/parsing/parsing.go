@@ -44,7 +44,7 @@ func NewParsePayload(objectKey string, hash uint64, typ string) *ParsePayload {
 
 const (
 	UrlMetaKey = "urlmeta:%s"
-	StreamName = "parser"
+	Streamer   = "parser"
 )
 
 func ExtractTextAndStore(ctx context.Context, job *queues.Job, store *storage.MinioStore, frontier *queues.Queue, parseStream *streams.MsgStream) error {
@@ -106,9 +106,12 @@ func ExtractTextAndStore(ctx context.Context, job *queues.Job, store *storage.Mi
 		return fmt.Errorf("Can't marshal record: %w", err)
 	}
 
-	msg := streams.NewMsg(recordBytes, StreamName)
-
-	parseStream.AddMsg(msg, StreamName)
+	msg := streams.NewMsg(recordBytes, Streamer)
+	log.Printf("[Parser] Publishing message for %s", job.URL)
+	err = parseStream.AddMsg(msg)
+	if err != nil {
+		log.Printf("[Parser] Failed to publish: %v", err)
+	}
 
 	nextDepth := currentMeta.Depth + 1
 

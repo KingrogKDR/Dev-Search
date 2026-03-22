@@ -10,10 +10,12 @@ import (
 	"github.com/KingrogKDR/Dev-Search/internal/indexer"
 	"github.com/KingrogKDR/Dev-Search/internal/indexer/worker"
 	"github.com/KingrogKDR/Dev-Search/internal/storage"
+	"github.com/KingrogKDR/Dev-Search/internal/storage/db"
 	"github.com/KingrogKDR/Dev-Search/internal/streams"
 )
 
 func main() {
+	db.InitDB()
 	defer indexer.FinalReport()
 	rdb := storage.GetRedisClient()
 	parserStream := streams.NewMsgStream(rdb, "parser", "indexer")

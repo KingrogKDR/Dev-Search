@@ -16,34 +16,37 @@ const (
 )
 
 type MsgStream struct {
-	namespace string
-	client    *redis.Client
-	ctx       context.Context
+	namespace  string
+	streamName string
+	groupName  string
+	client     *redis.Client
+	ctx        context.Context
 }
 
 func NewMsgStream(client *redis.Client, namespace string, consumerGroup string) *MsgStream {
-	ms := &MsgStream{
-		namespace: namespace,
-		client:    client,
-		ctx:       context.Background(),
-	}
-
 	streamName := fmt.Sprintf("%s-events", namespace)
 	groupName := fmt.Sprintf("%s-group", consumerGroup)
 
+	ms := &MsgStream{
+		namespace:  namespace,
+		streamName: streamName,
+		groupName:  groupName,
+		client:     client,
+		ctx:        context.Background(),
+	}
 	ms.ensureGroup(streamName, groupName)
 
 	return ms
 }
 
 func (ms *MsgStream) ensureGroup(streamName, groupName string) {
-	err := ms.client.XGroupCreateMkStream(ms.ctx, streamName, groupName, "$").Err()
+	err := ms.client.XGroupCreateMkStream(ms.ctx, streamName, groupName, "0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
 		panic(fmt.Errorf("failed to create consumer group: %w", err))
 	}
 }
 
-func (ms *MsgStream) AddMsg(msg *Msg, streamName string) error {
+func (ms *MsgStream) AddMsg(msg *Msg) error {
 	msg.AddedAt = time.Now()
 
 	msgJson, err := json.Marshal(msg)
@@ -51,24 +54,31 @@ func (ms *MsgStream) AddMsg(msg *Msg, streamName string) error {
 	if err != nil {
 		return fmt.Errorf("Can't marshal message in stream: %w", err)
 	}
-	ms.client.XAdd(ms.ctx, &redis.XAddArgs{
-		Stream: streamName,
+	publishCtx := context.Background()
+	err = ms.client.XAdd(publishCtx, &redis.XAddArgs{
+		Stream: ms.streamName,
 		Values: map[string]any{
 			"data": msgJson,
 		},
-	})
+	}).Err()
+
+	if err != nil {
+		return fmt.Errorf("failed to XADD: %w", err)
+	}
 
 	return nil
 }
 
-func (ms *MsgStream) GetMsg(consumer string, streamName string, groupName string) ([]Msg, error) {
+func (ms *MsgStream) GetMsg(consumer string) ([]Msg, error) {
+	log.Printf("Reading from stream %s as consumer %s", ms.streamName, consumer)
 	read := func(id string) ([]redis.XStream, error) {
+		log.Printf("Calling XREADGROUP with '%s'", id)
 		return ms.client.XReadGroup(ms.ctx, &redis.XReadGroupArgs{
-			Group:    groupName,
+			Group:    ms.groupName,
 			Consumer: consumer,
-			Streams:  []string{streamName, id},
+			Streams:  []string{ms.streamName, id},
 			Count:    10,
-			Block:    0,
+			Block:    2 * time.Second,
 		}).Result()
 	}
 
@@ -76,14 +86,14 @@ func (ms *MsgStream) GetMsg(consumer string, streamName string, groupName string
 
 	// try pending msgs first
 
-	streams, err := read("0")
+	streams, err := read(">")
 	if err != nil && err != redis.Nil {
 		return nil, fmt.Errorf("Can't read from stream: %w", err)
 	}
 
 	// if not pending -> try new
 	if len(streams) == 0 {
-		streams, err = read(">")
+		streams, err = read("0")
 		if err != nil && err != redis.Nil {
 			return nil, fmt.Errorf("Can't read from stream: %w", err)
 		}
@@ -92,8 +102,8 @@ func (ms *MsgStream) GetMsg(consumer string, streamName string, groupName string
 	// if still empty -> try autoclaim
 	if len(streams) == 0 {
 		res, _, err := ms.client.XAutoClaim(ms.ctx, &redis.XAutoClaimArgs{
-			Stream:   streamName,
-			Group:    groupName,
+			Stream:   ms.streamName,
+			Group:    ms.groupName,
 			Consumer: consumer,
 			MinIdle:  time.Minute,
 			Start:    "0",
@@ -108,13 +118,14 @@ func (ms *MsgStream) GetMsg(consumer string, streamName string, groupName string
 		if len(res) > 0 {
 			streams = []redis.XStream{
 				{
-					Stream:   streamName,
+					Stream:   ms.streamName,
 					Messages: res,
 				},
 			}
 		}
 	}
 
+	log.Printf("Fetched %d streams", len(streams))
 	var result []Msg
 
 	for _, stream := range streams {
@@ -145,6 +156,8 @@ func (ms *MsgStream) GetMsg(consumer string, streamName string, groupName string
 		}
 	}
 
+	log.Printf("Fetched %d messages", len(result))
+
 	return result, nil
 }
 
@@ -154,6 +167,7 @@ func (ms *MsgStream) CompleteMessage(msg *Msg, success bool, streamName string, 
 	}
 	if !success {
 		msg.RetryCount++
+		time.Sleep(time.Duration(msg.RetryCount) * time.Second)
 
 		if msg.RetryCount <= MAX_RETRIES {
 			data, err := json.Marshal(msg)

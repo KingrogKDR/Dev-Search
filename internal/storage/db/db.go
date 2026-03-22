@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"log"
-	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -11,7 +10,8 @@ import (
 var Pool *pgxpool.Pool
 
 func InitDB() {
-	connStr := os.Getenv("DATABASE_URL")
+	connStr := "postgres://dev:dev@localhost:5432/devsearch?sslmode=disable"
+	log.Printf("Connecting to DB with: %s", connStr)
 	var err error
 	Pool, err = pgxpool.New(context.Background(), connStr)
 	if err != nil {

@@ -74,7 +74,7 @@ func (w *Worker) processMessages() {
 		default:
 		}
 
-		messages, err := w.stream.GetMsg(w.ID, StreamName, GroupName)
+		messages, err := w.stream.GetMsg(w.ID)
 		if err != nil {
 			log.Printf("Worker %s: Error getting message from stream: %v", w.ID, err)
 			time.Sleep(time.Second)
@@ -112,7 +112,11 @@ func (w *Worker) processMessage(message *streams.Msg) {
 
 	success := err == nil
 
-	errMsg := err.Error()
+	var errMsg string
+
+	if err != nil {
+		errMsg = err.Error()
+	}
 
 	w.completeMsgProcessing(message, success, errMsg, duration)
 	indexer.IncrementProcessed()
