@@ -2,15 +2,15 @@ package db
 
 import (
 	"context"
-	"os"
+	_ "embed"
+	"log"
 )
 
-func RunMigrations() error {
-	data, err := os.ReadFile("schema.sql")
-	if err != nil {
-		return err
-	}
+//go:embed schema.sql
+var schema string
 
-	_, err = Pool.Exec(context.Background(), string(data))
+func RunMigrations() error {
+	log.Println("Schema length:", len(schema))
+	_, err := Pool.Exec(context.Background(), schema)
 	return err
 }

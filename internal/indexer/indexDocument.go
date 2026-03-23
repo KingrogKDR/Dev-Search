@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"unicode"
 
@@ -46,20 +47,24 @@ var stopwords = map[string]struct{}{
 
 type Document struct {
 	Record        *Record
-	InvertedIndex map[string]struct{}
+	InvertedIndex map[string]int
 }
 
 func NewDocument(record *Record) *Document {
 	return &Document{
 		Record:        record,
-		InvertedIndex: make(map[string]struct{}, 1000),
+		InvertedIndex: make(map[string]int, 1024),
 	}
 }
-
+func tokenize(text string) []string {
+	return strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+}
 func (d *Document) BuildIndex(text string, recordId uint64) {
-	words := strings.FieldsSeq(text)
+	words := tokenize(text)
 
-	for word := range words {
+	for _, word := range words {
 		word = strings.ToLower(word)
 
 		if _, exists := stopwords[word]; exists {
@@ -68,7 +73,15 @@ func (d *Document) BuildIndex(text string, recordId uint64) {
 
 		word = stemmer(word)
 
-		d.InvertedIndex[word] = struct{}{}
+		if word == "" {
+			continue
+		}
+
+		if len(word) > 50 {
+			continue
+		}
+
+		d.InvertedIndex[word]++
 	}
 }
 
@@ -94,38 +107,12 @@ func insertInvertedIndex(ctx context.Context, doc *Document) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	var (
-		values []string
-		args   []interface{}
-		i      = 1
-	)
-
-	for term := range doc.InvertedIndex {
-		values = append(values, fmt.Sprintf("($%d, $%d)", i, i+1))
-		args = append(args, term, doc.Record.ID)
-		i += 2
-	}
-
-	if len(values) > 0 {
-		query := fmt.Sprintf(`
-			INSERT INTO inverted_index (term, content_hash)
-			VALUES %s
-			ON CONFLICT DO NOTHING
-		`, strings.Join(values, ","))
-
-		if _, err := tx.Exec(ctx, query, args...); err != nil {
-			return err
-		}
-	}
-
-	// insert document metadata
+	hashStr := fmt.Sprintf("%x", doc.Record.ID)
 	_, err = tx.Exec(ctx, `
 	INSERT INTO documents (content_hash, url, title, snippet, object_key, inbound_links)
 	VALUES ($1, $2, $3, $4, $5, $6)
 	ON CONFLICT (content_hash) DO NOTHING
-	`,
-		doc.Record.ID,
+	`, hashStr,
 		doc.Record.URL,
 		doc.Record.Title,
 		doc.Record.Snippet,
@@ -137,5 +124,26 @@ func insertInvertedIndex(ctx context.Context, doc *Document) error {
 		return err
 	}
 
+	rows := make([][]any, 0, len(doc.InvertedIndex))
+
+	for term, freq := range doc.InvertedIndex {
+		rows = append(rows, []any{
+			term,
+			hashStr,
+			freq,
+		})
+	}
+
+	if len(rows) > 0 {
+		_, err = tx.CopyFrom(
+			ctx,
+			pgx.Identifier{"inverted_index"},
+			[]string{"term", "content_hash", "freq"},
+			pgx.CopyFromRows(rows),
+		)
+		if err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }

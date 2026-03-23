@@ -47,7 +47,7 @@ func main() {
 		return indexer.CreateAndStoreIndexedDocument(ctx, msg, store)
 	}
 
-	indexerWorker := worker.NewWorker("Indexer", parserStream, 4, indexExec)
+	indexerWorker := worker.NewWorker("Indexer", parserStream, 2, indexExec)
 
 	indexerWorker.Start()
 	c := make(chan os.Signal, 1)

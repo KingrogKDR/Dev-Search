@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	TaskTimeout = 5 * time.Minute
+	TaskTimeout = 15 * time.Minute
 	StreamName  = "parser-events"
 	GroupName   = "indexer-group"
 )
