@@ -6,16 +6,16 @@ Here, the term _distributed_ refers to multiple crawlers, all working together a
 This is largely developer-focused and optimises for developer content. I have also added a basic indexer for 
 future expansion into a search-engine.
 
-## Contents
+## Table of Contents
 
-- [Overview](#Overview)
-- [Architecture](#Architecture)
-- [Core Components](#Core Components)
-- [Performance](#Performance & Stats)
-- [Design Decisions](#Key Design Decisions)
-- [Challenges Faced](#Challenges Faced)
-- [Getting Started](#Getting Started)
-- [Learnings](#Learnings)
+* [Overview](#overview)
+* [Architecture](#architecture)
+* [Core Components](#core-components)
+* [Performance & Stats](#performance--stats)
+* [Key Design Decisions](#key-design-decisions)
+* [Challenges Faced](#challenges-faced)
+* [Getting Started](#getting-started)
+* [Learnings](#learnings)
 
 
 ## Overview
