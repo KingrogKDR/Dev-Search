@@ -229,8 +229,9 @@ go run .cmd/indexer # for running the indexer
 
 ## Learnings
 
-* Concurrency is easy to write, hard to control
-* Bottlenecks shift from CPU → network → memory
+* Internals of a crawler
+* Concurrency bottlenecks, race conditions and context handling
+* Performance and reliability tradeoffs
 * Simple systems scale surprisingly far when designed well
 
 Will craft my learnings in blogs soon.
