@@ -81,7 +81,7 @@ Crawler design:
 ![crawler system design](screenshots/crawler-design.png)
 
 
-## 🔧 Core-Components
+## Core-Components
 
 ### 1. URL Frontier (Scheduler)
 
