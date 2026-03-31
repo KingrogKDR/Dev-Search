@@ -1,10 +1,12 @@
-# A Distributed Web Crawler from Scratch (Single-Node Architecture in Go)
+# A Developer-Focused Web Crawler from Scratch (Single-Node Architecture in Go)
 
-A high-performance, single-machine web crawler built from scratch in Go.
-Designed to explore large portions of the web efficiently while maintaining control over concurrency, politeness, and storage.
-Here, the term _distributed_ refers to multiple crawlers, all working together as in a distributed system.
-This is largely developer-focused and optimises for developer content. I have also added a basic indexer for 
-future expansion into a search-engine.
+A developer focused crawler mainly for documentation and github search.
+
+Docs and some github repos are a goldmine of learning and information. Many developers stay unaware of them or find them hard to discover.  Craw solves this problem.
+
+People are free to contribute if they are willing. 
+
+I have also added a basic indexer for future expansion into a search-engine.
 
 ## Table of Contents
 
